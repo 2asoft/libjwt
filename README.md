@@ -6,7 +6,7 @@
 
 ## Build Requirements
 
-- https://github.com/akheron/jansson
+- https://github.com/miloyip/rapidjson
 - OpenSSL
 
 ## Documentation

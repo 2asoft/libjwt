@@ -28,14 +28,14 @@ END_TEST
 
 START_TEST(test_jwt_dup)
 {
-	jwt_t *jwt = NULL, *new = NULL;
+	jwt_t *jwt = NULL, *newJwt = NULL;
 	int ret = 0;
 	const char *val = NULL;
 	time_t now;
 	long valint;
 
-	new = jwt_dup(NULL);
-	ck_assert(new == NULL);
+	newJwt = jwt_dup(NULL);
+	ck_assert(newJwt == NULL);
 
 	ret = jwt_new(&jwt);
 	ck_assert_int_eq(ret, 0);
@@ -44,14 +44,14 @@ START_TEST(test_jwt_dup)
 	ret = jwt_add_grant(jwt, "iss", "test");
 	ck_assert_int_eq(ret, 0);
 
-	new = jwt_dup(jwt);
-	ck_assert(new != NULL);
+	newJwt = jwt_dup(jwt);
+	ck_assert(newJwt != NULL);
 
-	val = jwt_get_grant(new, "iss");
+	val = jwt_get_grant(newJwt, "iss");
 	ck_assert(val != NULL);
 	ck_assert_str_eq(val, "test");
 
-	ck_assert_int_eq(jwt_get_alg(new), JWT_ALG_NONE);
+	ck_assert_int_eq(jwt_get_alg(newJwt), JWT_ALG_NONE);
 
 	now = time(NULL);
 	ret = jwt_add_grant_int(jwt, "iat", (long)now);
@@ -60,15 +60,15 @@ START_TEST(test_jwt_dup)
 	valint = jwt_get_grant_int(jwt, "iat");
 	ck_assert(((long)now) == valint);
 
-	jwt_free(new);
+	jwt_free(newJwt);
 	jwt_free(jwt);
 }
 END_TEST
 
 START_TEST(test_jwt_dup_signed)
 {
-	unsigned char key256[32] = "012345678901234567890123456789XY";
-	jwt_t *jwt = NULL, *new = NULL;
+	unsigned char key256[33] = "012345678901234567890123456789XY";
+	jwt_t *jwt = NULL, *newJwt = NULL;
 	int ret = 0;
 	const char *val = NULL;
 
@@ -82,16 +82,16 @@ START_TEST(test_jwt_dup_signed)
 	ret = jwt_set_alg(jwt, JWT_ALG_HS256, key256, sizeof(key256));
 	ck_assert_int_eq(ret, 0);
 
-	new = jwt_dup(jwt);
-	ck_assert(new != NULL);
+	newJwt = jwt_dup(jwt);
+	ck_assert(newJwt != NULL);
 
-	val = jwt_get_grant(new, "iss");
+	val = jwt_get_grant(newJwt, "iss");
 	ck_assert(val != NULL);
 	ck_assert_str_eq(val, "test");
 
-	ck_assert_int_eq(jwt_get_alg(new), JWT_ALG_HS256);
+	ck_assert_int_eq(jwt_get_alg(newJwt), JWT_ALG_HS256);
 
-	jwt_free(new);
+	jwt_free(newJwt);
 	jwt_free(jwt);
 }
 END_TEST
@@ -216,7 +216,7 @@ START_TEST(test_jwt_decode_hs256)
 	const char token[] = "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpc3Mi"
 			     "OiJmaWxlcy5jeXBocmUuY29tIiwic3ViIjoidXNlcjAif"
 			     "Q.dLFbrHVViu1e3VD1yeCd9aaLNed-bfXhSsF0Gh56fBg";
-	unsigned char key256[32] = "012345678901234567890123456789XY";
+	unsigned char key256[33] = "012345678901234567890123456789XY";
 	jwt_t *jwt;
 	int ret;
 
@@ -235,7 +235,7 @@ START_TEST(test_jwt_decode_hs384)
 			     "3ViIjoidXNlcjAifQ.xqea3OVgPEMxsCgyikr"
 			     "R3gGv4H2yqMyXMm7xhOlQWpA-NpT6n2a1d7TD"
 			     "GgU6LOe4";
-	const unsigned char key384[48] = "aaaabbbbccccddddeeeeffffg"
+	const unsigned char key384[49] = "aaaabbbbccccddddeeeeffffg"
 					 "ggghhhhiiiijjjjkkkkllll";
 	jwt_t *jwt;
 	int ret;
@@ -254,7 +254,7 @@ START_TEST(test_jwt_decode_hs512)
 			     "OiJmaWxlcy5jeXBocmUuY29tIiwic3ViIjoidXNlcjAif"
 			     "Q.u-4XQB1xlYV8SgAnKBof8fOWOtfyNtc1ytTlc_vHo0U"
 			     "lh5uGT238te6kSacnVzBbC6qwzVMT1806oa1Y8_8EOg";
-	unsigned char key512[64] = "012345678901234567890123456789XY"
+	unsigned char key512[65] = "012345678901234567890123456789XY"
 				   "012345678901234567890123456789XY";
 	jwt_t *jwt;
         int ret;

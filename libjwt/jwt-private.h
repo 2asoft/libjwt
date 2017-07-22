@@ -18,18 +18,21 @@
 #ifndef JWT_PRIVATE_H
 #define JWT_PRIVATE_H
 
-#include <jansson.h>
+#include "rapidjson/document.h"
+#include "rapidjson/writer.h"
+#include "rapidjson/prettywriter.h"
+#include "rapidjson/stringbuffer.h"
 
 struct jwt {
 	jwt_alg_t alg;
 	unsigned char *key;
 	int key_len;
-	json_t *grants;
+	rapidjson::Document *grants;
 };
 
 /* Helper routines. */
 void jwt_base64uri_encode(char *str);
-void *jwt_b64_decode(const char *src, int *ret_len);
+char *jwt_b64_decode(const char *src, int *ret_len);
 
 /* These routines are implemented by the crypto backend. */
 int jwt_sign_sha_hmac(jwt_t *jwt, char **out, unsigned int *len,

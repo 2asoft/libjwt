@@ -117,7 +117,7 @@ int jwt_set_alg(jwt_t *jwt, jwt_alg_t alg, const unsigned char *key, int len)
 		if (!key || len <= 0)
 			return EINVAL;
 
-		jwt->key = malloc(len);
+		jwt->key = (unsigned char*)malloc(len);
 		if (!jwt->key)
 			return ENOMEM;
 
@@ -140,13 +140,13 @@ int jwt_new(jwt_t **jwt)
 	if (!jwt)
 		return EINVAL;
 
-	*jwt = malloc(sizeof(jwt_t));
+	*jwt = (jwt_t*)malloc(sizeof(jwt_t));
 	if (!*jwt)
 		return ENOMEM;
 
 	memset(*jwt, 0, sizeof(jwt_t));
 
-	(*jwt)->grants = json_object();
+	(*jwt)->grants = new rapidjson::Document();
 	if (!(*jwt)->grants) {
 		free(*jwt);
 		*jwt = NULL;
@@ -163,14 +163,17 @@ void jwt_free(jwt_t *jwt)
 
 	jwt_scrub_key(jwt);
 
-	json_decref(jwt->grants);
+	delete jwt->grants;
 
 	free(jwt);
 }
 
 jwt_t *jwt_dup(jwt_t *jwt)
 {
-	jwt_t *new = NULL;
+	jwt_t *newJwt = NULL;
+
+	rapidjson::StringBuffer sb;
+	rapidjson::Writer<rapidjson::StringBuffer> writer(sb);
 
 	if (!jwt) {
 		errno = EINVAL;
@@ -179,106 +182,107 @@ jwt_t *jwt_dup(jwt_t *jwt)
 
 	errno = 0;
 
-	new = malloc(sizeof(jwt_t));
-	if (!new) {
+	newJwt = (jwt_t*)malloc(sizeof(jwt_t));
+	if (!newJwt) {
 		errno = ENOMEM;
 		return NULL;
 	}
 
-	memset(new, 0, sizeof(jwt_t));
+	memset(newJwt, 0, sizeof(jwt_t));
 
 	if (jwt->key_len) {
-		new->alg = jwt->alg;
-		new->key = malloc(jwt->key_len);
-		if (!new->key) {
+		newJwt->alg = jwt->alg;
+		newJwt->key = (unsigned char*)malloc(jwt->key_len);
+		if (!newJwt->key) {
 			errno = ENOMEM;
 			goto dup_fail;
 		}
-		memcpy(new->key, jwt->key, jwt->key_len);
-		new->key_len = jwt->key_len;
+		memcpy(newJwt->key, jwt->key, jwt->key_len);
+		newJwt->key_len = jwt->key_len;
 	}
 
-	new->grants = json_deep_copy(jwt->grants);
-	if (!new->grants)
+	jwt->grants->Accept(writer);
+
+	newJwt->grants = new rapidjson::Document();
+	if (!newJwt->grants) {
 		errno = ENOMEM;
+		goto dup_fail;
+	}
+
+	newJwt->grants->Parse( sb.GetString() );
 
 dup_fail:
 	if (errno) {
-		jwt_free(new);
-		new = NULL;
+		jwt_free(newJwt);
+		newJwt = NULL;
 	}
 
-	return new;
+	return newJwt;
 }
 
-static const char *get_js_string(json_t *js, const char *key)
+static const char *get_js_string(rapidjson::Document *js, const char *key)
 {
 	const char *val = NULL;
-	json_t *js_val;
-
-	js_val = json_object_get(js, key);
-	if (js_val)
-		val = json_string_value(js_val);
+	if( js->HasMember( key ) ) {
+		val = (*js)[ key ].GetString();
+	}
 
 	return val;
 }
 
-static long get_js_int(json_t *js, const char *key)
+static long get_js_int(rapidjson::Document *js, const char *key)
 {
 	long val = -1;
-	json_t *js_val;
-
-	js_val = json_object_get(js, key);
-	if (js_val)
-		val = (long)json_integer_value(js_val);
+	if( js->HasMember( key ) ) {
+		val = (*js)[ key ].GetInt64();
+	}
 
 	return val;
 }
 
-void *jwt_b64_decode(const char *src, int *ret_len)
+char *jwt_b64_decode(const char *src, int *ret_len)
 {
-	void *buf;
-	char *new;
+	char *buf;
+	char *decoded;
 	int len, i, z;
 
 	/* Decode based on RFC-4648 URI safe encoding. */
 	len = strlen(src);
-	new = alloca(len + 4);
-	if (!new)
+	decoded = (char*)alloca(len + 4);
+	if (!decoded)
 		return NULL;
 
 	for (i = 0; i < len; i++) {
 		switch (src[i]) {
 		case '-':
-			new[i] = '+';
+			decoded[i] = '+';
 			break;
 		case '_':
-			new[i] = '/';
+			decoded[i] = '/';
 			break;
 		default:
-			new[i] = src[i];
+			decoded[i] = src[i];
 		}
 	}
 	z = 4 - (i % 4);
 	if (z < 4) {
 		while (z--)
-			new[i++] = '=';
+			decoded[i++] = '=';
 	}
-	new[i] = '\0';
+	decoded[i] = '\0';
 
-	buf = malloc(i);
+	buf = (char*)malloc(i);
 	if (buf == NULL)
 		return NULL;
 
-	*ret_len = jwt_Base64decode(buf, new);
+	*ret_len = jwt_Base64decode(buf, decoded);
 
 	return buf;
 }
 
 
-static json_t *jwt_b64_decode_json(char *src)
+static rapidjson::Document *jwt_b64_decode_json(char *src)
 {
-	json_t *js;
 	char *buf;
 	int len;
 
@@ -289,11 +293,12 @@ static json_t *jwt_b64_decode_json(char *src)
 
 	buf[len] = '\0';
 
-	js = json_loads(buf, 0, NULL);
+	rapidjson::Document *doc = new rapidjson::Document();
+	doc->Parse( buf );
 
 	free(buf);
 
-	return js;
+	return doc;
 }
 
 void jwt_base64uri_encode(char *str)
@@ -374,7 +379,7 @@ static int jwt_verify(jwt_t *jwt, const char *head, const char *sig)
 static int jwt_parse_body(jwt_t *jwt, char *body)
 {
 	if (jwt->grants) {
-		json_decref(jwt->grants);
+		delete jwt->grants;
 		jwt->grants = NULL;
 	}
 
@@ -387,22 +392,21 @@ static int jwt_parse_body(jwt_t *jwt, char *body)
 
 static int jwt_verify_head(jwt_t *jwt, char *head)
 {
-	json_t *js = NULL;
 	const char *val;
 	int ret;
 
-	js = jwt_b64_decode_json(head);
-	if (!js)
+	rapidjson::Document *doc = jwt_b64_decode_json(head);
+	if (!doc)
 		return EINVAL;
 
-	val = get_js_string(js, "alg");
+	val = get_js_string(doc, "alg");
 	ret = jwt_str_alg(jwt, val);
 	if (ret)
 		goto verify_head_done;
 
 	if (jwt->alg != JWT_ALG_NONE) {
 		/* If alg is not NONE, there may be a typ. */
-		val = get_js_string(js, "typ");
+		val = get_js_string(doc, "typ");
 		if (val && strcasecmp(val, "JWT"))
 			ret = EINVAL;
 
@@ -420,8 +424,8 @@ static int jwt_verify_head(jwt_t *jwt, char *head)
 	}
 
 verify_head_done:
-	if (js)
-		json_decref(js);
+	if (doc)
+		delete doc;
 
 	return ret;
 }
@@ -430,7 +434,7 @@ int jwt_decode(jwt_t **jwt, const char *token, const unsigned char *key,
 	       int key_len)
 {
 	char *head = strdup(token);
-	jwt_t *new = NULL;
+	jwt_t *jwtoken = NULL;
 	char *body, *sig;
 	int ret = EINVAL;
 
@@ -461,42 +465,42 @@ int jwt_decode(jwt_t **jwt, const char *token, const unsigned char *key,
 
 	/* Now that we have everything split up, let's check out the
 	 * header. */
-	ret = jwt_new(&new);
+	ret = jwt_new(&jwtoken);
 	if (ret) {
 		goto decode_done;
 	}
 
 	/* Copy the key over for verify_head. */
 	if (key_len) {
-		new->key = malloc(key_len);
-		if (new->key == NULL)
+		jwtoken->key = (unsigned char*)malloc(key_len);
+		if (jwtoken->key == NULL)
 			goto decode_done;
-		memcpy(new->key, key, key_len);
-		new->key_len = key_len;
+		memcpy(jwtoken->key, key, key_len);
+		jwtoken->key_len = key_len;
 	}
 
-	ret = jwt_verify_head(new, head);
+	ret = jwt_verify_head(jwtoken, head);
 	if (ret)
 		goto decode_done;
 
-	ret = jwt_parse_body(new, body);
+	ret = jwt_parse_body(jwtoken, body);
 	if (ret)
 		goto decode_done;
 
 	/* Check the signature, if needed. */
-	if (new->alg != JWT_ALG_NONE) {
+	if (jwtoken->alg != JWT_ALG_NONE) {
 		/* Re-add this since it's part of the verified data. */
 		body[-1] = '.';
-		ret = jwt_verify(new, head, sig);
+		ret = jwt_verify(jwtoken, head, sig);
 	} else {
 		ret = 0;
 	}
 
 decode_done:
 	if (ret)
-		jwt_free(new);
+		jwt_free(jwtoken);
 	else
-		*jwt = new;
+		*jwt = jwtoken;
 
 	free(head);
 
@@ -529,24 +533,29 @@ long jwt_get_grant_int(jwt_t *jwt, const char *grant)
 
 char *jwt_get_grants_json(jwt_t *jwt, const char *grant)
 {
-	json_t *js_val = NULL;
+	rapidjson::Value *js_val = nullptr;
 
 	errno = EINVAL;
 
 	if (!jwt)
 		return NULL;
 
-	if (grant && strlen(grant))
-		js_val = json_object_get(jwt->grants, grant);
-	else
-		js_val = jwt->grants;
+	rapidjson::StringBuffer sb;
+	rapidjson::Writer<rapidjson::StringBuffer> writer( sb );
 
-	if (js_val == NULL)
-		return NULL;
+	if (grant && strlen(grant)) {
+		if( jwt->grants->HasMember( grant ) ) {
+			(*jwt->grants)[ grant ].Accept( writer );
+		} else {
+			return NULL;
+		}
+	} else {
+		jwt->grants->Accept( writer );
+	}
 
 	errno = 0;
 
-	return json_dumps(js_val, JSON_SORT_KEYS | JSON_COMPACT | JSON_ENCODE_ANY);
+	return strdup( sb.GetString() );
 }
 
 int jwt_add_grant(jwt_t *jwt, const char *grant, const char *val)
@@ -554,11 +563,11 @@ int jwt_add_grant(jwt_t *jwt, const char *grant, const char *val)
 	if (!jwt || !grant || !strlen(grant) || !val)
 		return EINVAL;
 
-	if (get_js_string(jwt->grants, grant) != NULL)
+	if( jwt->grants->HasMember( grant ) ) {
 		return EEXIST;
+	}
 
-	if (json_object_set_new(jwt->grants, grant, json_string(val)))
-		return EINVAL;
+	jwt->grants->AddMember( rapidjson::Value(grant, jwt->grants->GetAllocator() ), rapidjson::Value(val, jwt->grants->GetAllocator() ), jwt->grants->GetAllocator() );
 
 	return 0;
 }
@@ -568,31 +577,35 @@ int jwt_add_grant_int(jwt_t *jwt, const char *grant, long val)
 	if (!jwt || !grant || !strlen(grant))
 		return EINVAL;
 
-	if (get_js_int(jwt->grants, grant) != -1)
+	if( jwt->grants->HasMember( grant ) ) {
 		return EEXIST;
+	}
 
-	if (json_object_set_new(jwt->grants, grant, json_integer((json_int_t)val)))
-		return EINVAL;
+	jwt->grants->AddMember( rapidjson::Value(grant, jwt->grants->GetAllocator() ), rapidjson::Value((int64_t)val), jwt->grants->GetAllocator() );
 
 	return 0;
 }
 
 int jwt_add_grants_json(jwt_t *jwt, const char *json)
 {
-	json_t *js_val;
 	int ret = -1;
 
-	if (!jwt)
+	if (!jwt) {
 		return EINVAL;
+	}
 
-	js_val = json_loads(json, JSON_REJECT_DUPLICATES, NULL);
+	rapidjson::Document dNew;
+	dNew.Parse( json );
 
-	if (json_is_object(js_val))
-		ret = json_object_update(jwt->grants, js_val);
+	for( auto iter = dNew.MemberBegin(); iter != dNew.MemberEnd(); ++iter ) {
+		if( jwt->grants->HasMember( iter->name ) ) {
+			jwt->grants->RemoveMember( iter->name );
+		}
 
-	json_decref(js_val);
+		jwt->grants->AddMember( iter->name, iter->value, jwt->grants->GetAllocator() );
+	}
 
-	return ret ? EINVAL : 0;
+	return 0;
 }
 
 int jwt_del_grants(jwt_t *jwt, const char *grant)
@@ -600,10 +613,11 @@ int jwt_del_grants(jwt_t *jwt, const char *grant)
 	if (!jwt)
 		return EINVAL;
 
-	if (grant == NULL || !strlen(grant))
-		json_object_clear(jwt->grants);
-	else
-		json_object_del(jwt->grants, grant);
+	if (grant == NULL || !strlen(grant)) {
+		jwt->grants->SetObject();
+	} else {
+		jwt->grants->RemoveMember( grant );
+	}
 
 	return 0;
 }
@@ -620,20 +634,20 @@ int jwt_del_grant(jwt_t *jwt, const char *grant)
 
 static int __append_str(char **buf, const char *str)
 {
-	char *new;
+	char *newStr;
 
 	if (*buf == NULL) {
-		new = calloc(1, strlen(str) + 1);
+		newStr = (char*)calloc(1, strlen(str) + 1);
 	} else {
-		new = realloc(*buf, strlen(*buf) + strlen(str) + 1);
+		newStr = (char*)realloc(*buf, strlen(*buf) + strlen(str) + 1);
 	}
 
-	if (new == NULL)
+	if (newStr == NULL)
 		return ENOMEM;
 
-	strcat(new, str);
+	strcat(newStr, str);
 
-	*buf = new;
+	*buf = newStr;
 
 	return 0;
 }
@@ -687,27 +701,26 @@ static int jwt_write_head(jwt_t *jwt, char **buf, int pretty)
 	return 0;
 }
 
-static int jwt_write_body(jwt_t *jwt, char **buf, int pretty)
-{
-	/* Sort keys for repeatability */
-	size_t flags = JSON_SORT_KEYS;
-	char *serial;
+static int jwt_write_body(jwt_t *jwt, char **buf, int pretty) {
+	rapidjson::StringBuffer sb;
 
 	if (pretty) {
-		APPEND_STR(buf, "\n");
-		flags |= JSON_INDENT(4);
+		rapidjson::PrettyWriter<rapidjson::StringBuffer> writer( sb );
+		jwt->grants->Accept( writer );
 	} else {
-		flags |= JSON_COMPACT;
+		rapidjson::Writer<rapidjson::StringBuffer> writer( sb );
+		jwt->grants->Accept( writer );
 	}
 
-	serial = json_dumps(jwt->grants, flags);
+	if (pretty) {
+		APPEND_STR( buf, "\n" );
+	}
 
-	APPEND_STR(buf, serial);
+	APPEND_STR(buf, sb.GetString());
 
-	free(serial);
-
-	if (pretty)
-		APPEND_STR(buf, "\n");
+	if (pretty) {
+		APPEND_STR( buf, "\n" );
+	}
 
 	return 0;
 }
@@ -776,7 +789,7 @@ static int jwt_encode(jwt_t *jwt, char **out)
 		return ret;
 	}
 
-	head = alloca(strlen(buf) * 2);
+	head = (char*)alloca(strlen(buf) * 2);
 	if (head == NULL) {
 		free(buf);
 		return ENOMEM;
@@ -795,7 +808,7 @@ static int jwt_encode(jwt_t *jwt, char **out)
 		return ret;
 	}
 
-	body = alloca(strlen(buf) * 2);
+	body = (char*)alloca(strlen(buf) * 2);
 	if (body == NULL) {
 		free(buf);
 		return ENOMEM;
@@ -810,7 +823,7 @@ static int jwt_encode(jwt_t *jwt, char **out)
 	jwt_base64uri_encode(body);
 
 	/* Allocate enough to reuse as b64 buffer. */
-	buf = malloc(head_len + body_len + 2);
+	buf = (char*)malloc(head_len + body_len + 2);
 	if (buf == NULL)
 		return ENOMEM;
 	strcpy(buf, head);
@@ -838,7 +851,7 @@ static int jwt_encode(jwt_t *jwt, char **out)
 	if (ret)
 		return ret;
 
-	buf = malloc(sig_len * 2);
+	buf = (char*)malloc(sig_len * 2);
 	if (buf == NULL) {
 		free(sig);
 		return ENOMEM;

@@ -1,5 +1,8 @@
 AC_PREREQ([2.61])
 AC_INIT([libjwt], [1.8.0], [https://github.com/benmcollins/libjwt/issues])
+AC_LANG(C++)
+AC_PROG_CXX([g++])
+AC_PROG_CC([g++])
 AM_INIT_AUTOMAKE
 LT_PREREQ([2.2])
 LT_INIT([])
@@ -20,7 +23,8 @@ AS_IF([test "x$with_openssl" != "xno"], [
 	AM_CONDITIONAL([HAVE_OPENSSL], [false])
 ])
 
-PKG_CHECK_MODULES([JANSSON], [jansson >= 2.0])
+AC_CHECK_HEADERS( [rapidjson/document.h], [found_rapidjson_headers=yes; break;] )
+AS_IF( [test "x$found_rapidjson_headers" != "xyes"], [AC_MSG_ERROR([Unable to find RapidJSON headers])])
 PKG_CHECK_MODULES([CHECK], [check >= 0.9.4], [true], [true])
 
 AX_VALGRIND_CHECK

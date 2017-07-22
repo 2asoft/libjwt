@@ -80,7 +80,7 @@ int jwt_sign_sha_hmac(jwt_t *jwt, char **out, unsigned int *len,
 		return EINVAL;
 	}
 
-	*out = malloc(EVP_MAX_MD_SIZE);
+	*out = (char*)malloc(EVP_MAX_MD_SIZE);
 	if (*out == NULL)
 		return ENOMEM;
 
@@ -138,7 +138,7 @@ int jwt_verify_sha_hmac(jwt_t *jwt, const char *head, const char *sig)
 	if (len < 0)
 		goto jwt_verify_hmac_done;
 
-	buf = alloca(len + 1);
+	buf = (char*)alloca(len + 1);
 	if (!buf) {
 		ret = ENOMEM;
 		goto jwt_verify_hmac_done;
@@ -242,7 +242,7 @@ int jwt_sign_sha_pem(jwt_t *jwt, char **out, unsigned int *len,
 		SIGN_ERROR(EINVAL);
 
 	/* Allocate memory for signature based on returned size */
-	sig = alloca(slen);
+	sig = (unsigned char*)alloca(slen);
 	if (sig == NULL)
 		SIGN_ERROR(ENOMEM);
 
@@ -251,7 +251,7 @@ int jwt_sign_sha_pem(jwt_t *jwt, char **out, unsigned int *len,
 		SIGN_ERROR(EINVAL);
 
 	if (pkey_type != EVP_PKEY_EC) {
-		*out = malloc(slen);
+		*out = (char*)malloc(slen);
 		if (*out == NULL)
 			SIGN_ERROR(ENOMEM);
 		memcpy(*out, sig, slen);
@@ -285,7 +285,7 @@ int jwt_sign_sha_pem(jwt_t *jwt, char **out, unsigned int *len,
 			SIGN_ERROR(EINVAL);
 
 		buf_len = 2 * bn_len;
-		raw_buf = alloca(buf_len);
+		raw_buf = (unsigned char*)alloca(buf_len);
 		if (raw_buf == NULL)
 			SIGN_ERROR(ENOMEM);
 
@@ -294,7 +294,7 @@ int jwt_sign_sha_pem(jwt_t *jwt, char **out, unsigned int *len,
 		BN_bn2bin(ec_sig_r, raw_buf + bn_len - r_len);
 		BN_bn2bin(ec_sig_s, raw_buf + buf_len - s_len);
 
-		*out = malloc(buf_len);
+		*out = (char*)malloc(buf_len);
 		if (*out == NULL)
 			SIGN_ERROR(ENOMEM);
 		memcpy(*out, raw_buf, buf_len);
@@ -364,7 +364,7 @@ int jwt_verify_sha_pem(jwt_t *jwt, const char *head, const char *sig_b64)
 		return EINVAL;
 	}
 
-	sig = jwt_b64_decode(sig_b64, &slen);
+	sig = (unsigned char*)jwt_b64_decode(sig_b64, &slen);
 	if (sig == NULL)
 		VERIFY_ERROR(EINVAL);
 
@@ -415,7 +415,7 @@ int jwt_verify_sha_pem(jwt_t *jwt, const char *head, const char *sig_b64)
 		free(sig);
 
 		slen = i2d_ECDSA_SIG(ec_sig, NULL);
-		sig = malloc(slen);
+		sig = (unsigned char*)malloc(slen);
 		if (sig == NULL)
 			VERIFY_ERROR(ENOMEM);
 
